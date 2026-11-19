@@ -1872,11 +1872,35 @@ class AutoTestSub(vehicle_test_suite.TestSuite):
 
         self.disarm_vehicle()
 
+    def AS02SurfaceArmSpool(self):
+        """AS-02 research: compare SURFACE thrust from armed and disarmed entry paths."""
+        # Case A: baseline underwater with armed flight controller.
+        self.reboot_sitl()
+        self.dive(-12, mode='ALT_HOLD')
+        self.progress("AS02 A: vehicle armed; switching ALT_HOLD -> SURFACE")
+        self.change_mode('SURFACE')
+        self.wait_altitude(altitude_min=-9, altitude_max=-8, relative=True, timeout=45)
+        self.progress("AS02 A PASS: surfaced by at least 3m")
+        self.disarm_vehicle(force=True)
+
+        # Case B: start again, change into SURFACE while disarmed, then arm.
+        self.reboot_sitl()
+        self.dive(-12, mode='ALT_HOLD')
+        self.disarm_vehicle(force=True)
+        self.progress("AS02 B: disarmed -> SURFACE -> arm at depth")
+        self.change_mode('SURFACE')
+        self.arm_vehicle()
+        self.wait_mode('SURFACE')
+        self.wait_altitude(altitude_min=-9, altitude_max=-8, relative=True, timeout=45)
+        self.progress("AS02 B PASS: surfaced by at least 3m")
+        self.disarm_vehicle(force=True)
+
     def tests(self):
         '''return list of all tests'''
         ret = super(AutoTestSub, self).tests()
 
         ret.extend([
+            self.AS02SurfaceArmSpool,
             self.DiveManual,
             self.SIMCompare,
             self.GCSFailsafe,
