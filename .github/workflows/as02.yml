@@ -1,0 +1,39 @@
+name: AS-02 ArduSub SITL comparison
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  as02:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    container:
+      image: ardupilot/ardupilot-dev-base:v0.2.0
+      options: --privileged --cap-add=SYS_PTRACE --security-opt apparmor=unconfined --security-opt seccomp=unconfined
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build ArduSub SITL
+        shell: bash
+        run: |
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+          export PATH="/github/home/.local/bin:$PATH"
+          ./waf configure --board sitl --debug
+          ./waf build --target bin/ardusub -j 4
+      - name: Run AS-02 two-path vehicle integration test
+        shell: bash
+        run: |
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+          export PATH="/github/home/.local/bin:$PATH"
+          python3 Tools/autotest/autotest.py --no-clean --no-configure test.Sub.AS02SurfaceArmSpool
+      - name: Preserve SITL logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AS02-SITL-${{ github.run_id }}
+          path: |
+            /tmp/buildlogs
+            logs
+            build/sitl/bin/ardusub
+          retention-days: 14
