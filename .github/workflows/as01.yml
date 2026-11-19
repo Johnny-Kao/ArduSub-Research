@@ -1,0 +1,17 @@
+name: AS-01 source condition regression
+on:
+  push:
+    paths:
+      - 'research/AS-01/**'
+      - 'ArduSub/failsafe.cpp'
+      - '.github/workflows/as01.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  as01:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile actual baseline condition and reproduce rollover behavior
+        run: python3 research/AS-01/test_source_condition.py
