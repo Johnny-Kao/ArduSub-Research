@@ -1,0 +1,59 @@
+name: AS-03-05 ArduSub real SITL failure-mode probes
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  three-sitl-probes:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    container:
+      image: ardupilot/ardupilot-dev-base:v0.2.0
+      options: --privileged --cap-add=SYS_PTRACE --security-opt apparmor=unconfined --security-opt seccomp=unconfined
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Verify autotest syntax
+        shell: bash
+        run: python3 -m py_compile Tools/autotest/ardusub.py
+      - name: Build ArduSub SITL
+        shell: bash
+        run: |
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+          export PATH="/github/home/.local/bin:$PATH"
+          ./waf configure --board sitl --debug
+          ./waf build --target bin/ardusub -j 4
+      - name: Install autotest dependencies
+        shell: bash
+        run: |
+          export PATH="/github/home/.local/bin:$PATH"
+          python3 -m pip install --user --progress-bar off ./modules/mavlink/pymavlink
+          python3 -m pip install --user --progress-bar off defusedxml pyserial numpy pynmeagps MAVProxy
+      - name: Execute three independent SITL scenarios
+        shell: bash
+        run: |
+          export PATH="/github/home/.local/bin:$PATH"
+          failures=0
+          for test in AS03DepthFailsafeSITL AS04GuidedTerrainRecoverySITL AS05GuidedAccelerationTimeoutSITL; do
+            echo "::group::${test}"
+            if python3 Tools/autotest/autotest.py --no-clean --no-configure "test.Sub.${test}"; then
+              echo "SITL_RESULT ${test} PASS"
+            else
+              code=$?
+              echo "SITL_RESULT ${test} FAIL_OR_RED exit=${code}"
+              failures=$((failures+1))
+            fi
+            echo "::endgroup::"
+          done
+          echo "SITL_SCENARIOS_FAILED=${failures}"
+          test ${failures} -eq 0
+      - name: Archive SITL output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AS03-AS04-AS05-SITL-${{ github.run_id }}
+          path: |
+            /tmp/buildlogs
+            logs
+          retention-days: 14
