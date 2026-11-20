@@ -30,12 +30,12 @@ jobs:
           export PATH="/github/home/.local/bin:$PATH"
           python3 -m pip install --user --progress-bar off ./modules/mavlink/pymavlink
           python3 -m pip install --user --progress-bar off defusedxml pyserial numpy pynmeagps MAVProxy
-      - name: Execute three independent SITL scenarios
+      - name: Execute four independent SITL scenarios
         shell: bash
         run: |
           export PATH="/github/home/.local/bin:$PATH"
           failures=0
-          for test in AS04AutoTerrainRecoveryControlSITL; do
+          for test in AS03AltHoldDepthFailsafeControlSITL AS03DepthFailsafeSITL AS04AutoTerrainRecoveryControlSITL AS04GuidedTerrainRecoverySITL; do
             echo "::group::${test}"
             if python3 Tools/autotest/autotest.py --no-clean --no-configure "test.Sub.${test}"; then
               echo "SITL_RESULT ${test} PASS"
