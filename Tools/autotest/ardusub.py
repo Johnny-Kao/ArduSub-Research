@@ -1895,12 +1895,97 @@ class AutoTestSub(vehicle_test_suite.TestSuite):
         self.progress("AS02 B PASS: surfaced by at least 3m")
         self.disarm_vehicle(force=True)
 
+    def AS03DepthFailsafeSITL(self):
+        """AS-03: real sensor failure while SURFTRAK is controlling depth."""
+        self.reboot_sitl()
+        self.dive(-8, mode='ALT_HOLD')
+        self.change_mode('SURFTRAK')
+        self.context_collect('STATUSTEXT')
+        self.progress("AS03: SURFTRAK active and armed; disabling barometer in SITL")
+        self.set_parameter('SIM_BARO_DISABLE', 1)
+        self.delay_sim_time(5, reason="allow sensor-health failsafe to run")
+        self.progress("AS03 observed mode=%s armed=%s" % (self.mav.flightmode, self.armed()))
+        # Sensor fault must actually trigger, or the result is inconclusive.
+        self.wait_statustext("Depth sensor error!", check_context=True, timeout=8)
+        if self.mav.flightmode == 'SURFTRAK':
+            raise NotAchievedException(
+                "AS03 RED: confirmed depth sensor error, still in SURFTRAK")
+        self.progress("AS03 GREEN: switched away from depth-dependent control")
+
+    def AS04GuidedTerrainRecoverySITL(self):
+        """AS-04: GUIDE terrain failure must execute a recovery or failsafe action."""
+        self.prepare_synthetic_seafloor_test(50, 10)
+        self.set_parameter('RNGFND1_MAX', 50)
+        self.dive(-15, mode='ALT_HOLD')
+        self.change_mode('GUIDED')
+        m = self.assert_receive_message('GLOBAL_POSITION_INT')
+        dest = util.gps_newpos(m.lat * 1e-7, m.lon * 1e-7, 0, 30)
+        mask = (mavutil.mavlink.POSITION_TARGET_TYPEMASK_VX_IGNORE |
+                mavutil.mavlink.POSITION_TARGET_TYPEMASK_VY_IGNORE |
+                mavutil.mavlink.POSITION_TARGET_TYPEMASK_VZ_IGNORE |
+                mavutil.mavlink.POSITION_TARGET_TYPEMASK_AX_IGNORE |
+                mavutil.mavlink.POSITION_TARGET_TYPEMASK_AY_IGNORE |
+                mavutil.mavlink.POSITION_TARGET_TYPEMASK_AZ_IGNORE |
+                mavutil.mavlink.POSITION_TARGET_TYPEMASK_YAW_IGNORE |
+                mavutil.mavlink.POSITION_TARGET_TYPEMASK_YAW_RATE_IGNORE)
+        self.context_collect('STATUSTEXT')
+        self.mav.mav.set_position_target_global_int_send(
+            0, 1, 1, mavutil.mavlink.MAV_FRAME_GLOBAL_TERRAIN_ALT, mask,
+            int(dest[0] * 1e7), int(dest[1] * 1e7), 25,
+            0, 0, 0, 0, 0, 0, 0, 0)
+        self.delay_sim_time(3, reason="GUIDED waypoint terrain navigation")
+        self.progress("AS04: inducing rangefinder out-of-range in GUIDED")
+        self.set_parameter('RNGFND1_MAX', 15)
+        self.wait_statustext("Attempting auto failsafe recovery", check_context=True, timeout=15)
+        self.progress("AS04: recovery announced; waiting beyond recovery timeout")
+        self.delay_sim_time(13, reason="observe whether GUIDED runs AUTO recovery timeout")
+        self.progress("AS04 state: mode=%s armed=%s" % (self.mav.flightmode, self.armed()))
+        # Expected configured failsafe defaults to disarm after unsuccessful recovery.
+        texts = [m.text for m in self.collected_msgs('STATUSTEXT')]
+        if not any('Terrain failsafe recovery timeout!' in t or
+                   'Terrain failsafe recovery failure:' in t for t in texts):
+            raise NotAchievedException(
+                "AS04 RED: recovery started but no recovery failure/timeout action after 13s")
+        self.progress("AS04 GREEN: recovery failure/timeout observed")
+
+    def AS05GuidedAccelerationTimeoutSITL(self):
+        """AS-05: verify real controller behavior after acceleration-only command expires."""
+        self.reboot_sitl()
+        self.dive(-10, mode='ALT_HOLD')
+        self.change_mode('GUIDED')
+        self.context_set_message_rate_hz('LOCAL_POSITION_NED', 10)
+        self.context_set_message_rate_hz('SERVO_OUTPUT_RAW', 10)
+        m = self.assert_receive_message('LOCAL_POSITION_NED')
+        mask = (mavutil.mavlink.POSITION_TARGET_TYPEMASK_YAW_IGNORE |
+                mavutil.mavlink.POSITION_TARGET_TYPEMASK_YAW_RATE_IGNORE)
+        self.progress("AS05: zero velocity, nonzero X acceleration, target at current position")
+        self.mav.mav.set_position_target_local_ned_send(
+            0, 1, 1, mavutil.mavlink.MAV_FRAME_LOCAL_NED, mask,
+            m.x, m.y, m.z, 0, 0, 0, 1.5, 0, 0, 0, 0)
+        # No further input for >3 seconds. Capture real telemetry, not just a mocked condition.
+        self.delay_sim_time(5, reason="acceleration setpoint timeout")
+        p = self.assert_receive_message('LOCAL_POSITION_NED')
+        srv = self.assert_receive_message('SERVO_OUTPUT_RAW')
+        self.progress("AS05 post-timeout: position=(%.2f %.2f %.2f), velocity=(%.2f %.2f %.2f), servo=%s" %
+                      (p.x, p.y, p.z, p.vx, p.vy, p.vz,
+                       [getattr(srv, 'servo%d_raw' % i) for i in range(1, 9)]))
+        self.delay_sim_time(3, reason="continued output without external commands")
+        p2 = self.assert_receive_message('LOCAL_POSITION_NED')
+        srv2 = self.assert_receive_message('SERVO_OUTPUT_RAW')
+        self.progress("AS05 8s post-command: position=(%.2f %.2f %.2f), velocity=(%.2f %.2f %.2f), servo=%s" %
+                      (p2.x, p2.y, p2.z, p2.vx, p2.vy, p2.vz,
+                       [getattr(srv2, 'servo%d_raw' % i) for i in range(1, 9)]))
+        self.disarm_vehicle(force=True)
+
     def tests(self):
         '''return list of all tests'''
         ret = super(AutoTestSub, self).tests()
 
         ret.extend([
             self.AS02SurfaceArmSpool,
+            self.AS03DepthFailsafeSITL,
+            self.AS04GuidedTerrainRecoverySITL,
+            self.AS05GuidedAccelerationTimeoutSITL,
             self.DiveManual,
             self.SIMCompare,
             self.GCSFailsafe,
