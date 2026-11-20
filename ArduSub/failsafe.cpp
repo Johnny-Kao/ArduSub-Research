@@ -88,7 +88,7 @@ void Sub::failsafe_sensors_check()
     gcs().send_text(MAV_SEVERITY_CRITICAL, "Depth sensor error!");
     LOGGER_WRITE_ERROR(LogErrorSubsystem::FAILSAFE_SENSORS, LogErrorCode::BAD_DEPTH);
 
-    if (control_mode == Mode::Number::ALT_HOLD || control_mode == Mode::Number::SURFACE || sub.flightmode->requires_GPS()) {
+    if (control_mode == Mode::Number::ALT_HOLD || control_mode == Mode::Number::SURFACE || control_mode == Mode::Number::SURFTRAK || sub.flightmode->requires_GPS()) {
         // This should always succeed
         if (!set_mode(Mode::Number::MANUAL, ModeReason::BAD_DEPTH)) {
             // We should never get here
