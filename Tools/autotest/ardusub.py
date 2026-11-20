@@ -1935,7 +1935,7 @@ class AutoTestSub(vehicle_test_suite.TestSuite):
         """AS-04 positive control: AUTO executes terrain recovery timeout."""
         self.prepare_synthetic_seafloor_test(50, 15)
         self.set_parameter('RNGFND1_MAX', 50)
-        self.load_mission(self.test_filepath('SimTerrainMission/terrain_mission.txt'))
+        self.load_mission_from_filepath(os.path.join(testdir, 'ArduSub_Tests', 'SimTerrainMission', 'terrain_mission.txt'))
         self.dive(-35, mode='ALT_HOLD')
         self.context_collect('STATUSTEXT')
         self.change_mode('AUTO')
