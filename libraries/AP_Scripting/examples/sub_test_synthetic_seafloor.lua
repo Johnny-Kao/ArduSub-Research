@@ -560,6 +560,18 @@ local function range_finder_driver(sub_loc)
         return
     end
 
+    -- Research SITL fault injection: SCR_USER3=-101 reports an out-of-range
+    -- sonar state while keeping the synthetic sensor connected. This exercises
+    -- terrain recovery (unlike NoData, which directly invokes the fallback).
+    if param:get('SCR_USER3') == -101 then
+        rf_state:status(3) -- RangeFinder::Status::OutOfRangeHigh
+        rf_state:range_valid_count(0)
+        rf_state:distance(50)
+        rf_state:signal_quality(SIGNAL_QUALITY_MIN)
+        rngfnd_backend:handle_script_msg(rf_state)
+        return
+    end
+
     -- Generate a simulated range measurement
     local true_range_m = range_model:get_range(sub_loc)
     local range_m = measurement_noise_func(true_range_m)
