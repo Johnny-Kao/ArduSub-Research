@@ -1915,6 +1915,55 @@ class AutoTestSub(vehicle_test_suite.TestSuite):
                 "AS03 RED: confirmed depth sensor error, still in SURFTRAK")
         self.progress("AS03 GREEN: switched away from depth-dependent control")
 
+    def AS03AltHoldDepthFailsafeControlSITL(self):
+        """AS-03 positive control: depth loss must exit ALT_HOLD."""
+        self.reboot_sitl()
+        self.dive(-8, mode='ALT_HOLD')
+        self.context_collect('STATUSTEXT')
+        self.set_parameter('SIM_BARO_DISABLE', 1)
+        self.delay_sim_time(5, reason="ALT_HOLD depth-sensor failure control")
+        mode = self.assert_receive_message('HEARTBEAT').custom_mode
+        self.wait_statustext("Depth sensor error!", check_context=True, timeout=8)
+        self.progress("AS03 CONTROL: mode=%d armed=%s" % (mode, self.armed()))
+        if mode != 19:
+            raise NotAchievedException(
+                "AS03 CONTROL FAILED: ALT_HOLD did not switch to MANUAL")
+        if self.armed():
+            self.disarm_vehicle(force=True)
+
+    def AS04AutoTerrainRecoveryControlSITL(self):
+        """AS-04 positive control: AUTO executes terrain recovery timeout."""
+        self.prepare_synthetic_seafloor_test(50, 15)
+        self.set_parameter('RNGFND1_MAX', 50)
+        self.load_mission('terrain_mission.txt')
+        self.dive(-35, mode='ALT_HOLD')
+        self.context_collect('STATUSTEXT')
+        self.change_mode('AUTO')
+        self.delay_sim_time(3, reason="AUTO terrain waypoint underway")
+        self.progress("AS04 AUTO CONTROL: inject OutOfRangeHigh")
+        self.set_parameter('SCR_USER3', -101)
+        self.delay_sim_time(16, reason="AUTO terrain recovery timeout plus margin")
+        mode = self.mav.flightmode
+        armed = self.armed()
+        texts = [m.text for m in self.collected_msgs('STATUSTEXT')]
+        relevant = [t for t in texts if 'terrain' in t.lower() or 'failsafe' in t.lower()]
+        self.progress("AS04 AUTO CONTROL: mode=%s armed=%s events=%s" %
+                      (mode, armed, relevant))
+        if not any('Failsafe terrain triggered' in t for t in texts):
+            raise NotAchievedException(
+                "AS04 AUTO CONTROL INCONCLUSIVE: terrain failsafe not triggered")
+        if not any('Attempting auto failsafe recovery' in t for t in texts):
+            raise NotAchievedException(
+                "AS04 AUTO CONTROL INCONCLUSIVE: terrain recovery not started")
+        if not any('Terrain failsafe recovery timeout!' in t or
+                   'Terrain failsafe recovery failure:' in t for t in texts):
+            raise NotAchievedException(
+                "AS04 AUTO CONTROL FAILED: missing recovery timeout/failure")
+        if armed:
+            raise NotAchievedException(
+                "AS04 AUTO CONTROL FAILED: still armed after timeout, default DISARM action")
+        self.progress("AS04 AUTO CONTROL GREEN: deadline led to failsafe disarm")
+
     def AS04GuidedTerrainRecoverySITL(self):
         """AS-04: GUIDE terrain failure must execute a recovery or failsafe action."""
         self.prepare_synthetic_seafloor_test(50, 10)
@@ -2016,7 +2065,9 @@ class AutoTestSub(vehicle_test_suite.TestSuite):
 
         ret.extend([
             self.AS02SurfaceArmSpool,
+            self.AS03AltHoldDepthFailsafeControlSITL,
             self.AS03DepthFailsafeSITL,
+            self.AS04AutoTerrainRecoveryControlSITL,
             self.AS04GuidedTerrainRecoverySITL,
             self.AS05GuidedAccelerationTimeoutSITL,
             self.DiveManual,
