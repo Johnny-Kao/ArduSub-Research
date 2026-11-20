@@ -21,6 +21,13 @@ jobs:
           export PATH="/github/home/.local/bin:$PATH"
           ./waf configure --board sitl --debug
           ./waf build --target bin/ardusub -j 4
+      - name: Install ArduPilot autotest Python dependencies
+        shell: bash
+        run: |
+          export PATH="/github/home/.local/bin:$PATH"
+          python3 -m pip install --user --progress-bar off ./modules/mavlink/pymavlink
+          python3 -m pip install --user --progress-bar off defusedxml pyserial numpy pynmeagps
+          python3 -m pip install --user --progress-bar off MAVProxy
       - name: Run AS-02 two-path vehicle integration test
         shell: bash
         run: |
