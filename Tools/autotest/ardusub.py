@@ -1914,6 +1914,7 @@ class AutoTestSub(vehicle_test_suite.TestSuite):
             raise NotAchievedException(
                 "AS03 RED: confirmed depth sensor error, still in SURFTRAK")
         self.progress("AS03 GREEN: switched away from depth-dependent control")
+        self.disarm_vehicle(force=True)
 
     def AS04GuidedTerrainRecoverySITL(self):
         """AS-04: GUIDE terrain failure must execute a recovery or failsafe action."""
