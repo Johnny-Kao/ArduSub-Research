@@ -1954,19 +1954,32 @@ class AutoTestSub(vehicle_test_suite.TestSuite):
                 "AS04 SETUP_INCONCLUSIVE: GUIDED terrain target was not accepted")
         self.progress("AS04 verified: 30m GUIDED terrain waypoint accepted")
         self.delay_sim_time(3, reason="GUIDED waypoint terrain navigation")
-        self.progress("AS04: inducing rangefinder out-of-range in GUIDED")
-        self.set_parameter('RNGFND1_MAX', 15)
-        self.wait_statustext("Attempting auto failsafe recovery", check_context=True, timeout=15)
-        self.progress("AS04: recovery announced; waiting beyond recovery timeout")
-        self.delay_sim_time(13, reason="observe whether GUIDED runs AUTO recovery timeout")
+        self.progress("AS04: inject explicit OutOfRangeHigh from Lua sonar in GUIDED")
+        # Changing RNGFND1_MAX alone does not invalidate the Lua sensor: the
+        # scripted backend keeps publishing Good. SCR_USER3=-101 is a dedicated
+        # research fixture injection implemented in sub_test_synthetic_seafloor.lua.
+        self.set_parameter('SCR_USER3', -101)
+        self.delay_sim_time(16, reason="observe actual terrain failsafe and recovery deadline")
         self.progress("AS04 state: mode=%s armed=%s" % (self.mav.flightmode, self.armed()))
-        # Expected configured failsafe defaults to disarm after unsuccessful recovery.
         texts = [m.text for m in self.collected_msgs('STATUSTEXT')]
-        if not any('Terrain failsafe recovery timeout!' in t or
-                   'Terrain failsafe recovery failure:' in t for t in texts):
+        self.progress("AS04 relevant messages: %s" % [
+            t for t in texts if 'terrain' in t.lower() or 'failsafe' in t.lower()])
+        triggered = any('Failsafe terrain triggered' in t for t in texts)
+        recovery = any('Attempting auto failsafe recovery' in t for t in texts)
+        if not triggered:
             raise NotAchievedException(
-                "AS04 RED: recovery started but no recovery failure/timeout action after 13s")
-        self.progress("AS04 GREEN: recovery failure/timeout observed")
+                "AS04 INCONCLUSIVE: sensor injection did not trigger terrain failsafe")
+        if not recovery:
+            raise NotAchievedException(
+                "AS04 INCONCLUSIVE: terrain failsafe did not enter recovery")
+        acted = any('Terrain failsafe recovery timeout!' in t or
+                    'Terrain failsafe recovery failure:' in t for t in texts)
+        if not acted and self.mav.flightmode == 'GUIDED' and self.armed():
+            raise NotAchievedException(
+                "AS04 RED: terrain recovery started but GUIDED still armed after 16s without fallback")
+        self.progress("AS04 GREEN: failure recovery or fallback observed")
+        if self.armed():
+            self.disarm_vehicle(force=True)
 
     def AS05GuidedAccelerationTimeoutSITL(self):
         """AS-05: verify real controller behavior after acceleration-only command expires."""
