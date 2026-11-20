@@ -1899,15 +1899,18 @@ class AutoTestSub(vehicle_test_suite.TestSuite):
         """AS-03: real sensor failure while SURFTRAK is controlling depth."""
         self.reboot_sitl()
         self.dive(-8, mode='ALT_HOLD')
-        self.change_mode('SURFTRAK')
+        # ArduSub supports SURFTRAK as custom mode 21, but pymavlink's
+        # SUB mode_mapping does not give that mode a string alias.
+        self.change_mode(21)
         self.context_collect('STATUSTEXT')
-        self.progress("AS03: SURFTRAK active and armed; disabling barometer in SITL")
+        self.progress("AS03: SURFTRAK mode 21 active; disabling depth sensor")
         self.set_parameter('SIM_BARO_DISABLE', 1)
         self.delay_sim_time(5, reason="allow sensor-health failsafe to run")
-        self.progress("AS03 observed mode=%s armed=%s" % (self.mav.flightmode, self.armed()))
+        mode = self.assert_receive_message('HEARTBEAT').custom_mode
+        self.progress("AS03 observed custom_mode=%d armed=%s" % (mode, self.armed()))
         # Sensor fault must actually trigger, or the result is inconclusive.
         self.wait_statustext("Depth sensor error!", check_context=True, timeout=8)
-        if self.mav.flightmode == 'SURFTRAK':
+        if mode == 21:
             raise NotAchievedException(
                 "AS03 RED: confirmed depth sensor error, still in SURFTRAK")
         self.progress("AS03 GREEN: switched away from depth-dependent control")
@@ -1917,6 +1920,8 @@ class AutoTestSub(vehicle_test_suite.TestSuite):
         self.prepare_synthetic_seafloor_test(50, 10)
         self.set_parameter('RNGFND1_MAX', 50)
         self.dive(-15, mode='ALT_HOLD')
+        self.context_set_message_rate_hz('GLOBAL_POSITION_INT', 10)
+        self.context_set_message_rate_hz('NAV_CONTROLLER_OUTPUT', 10)
         self.change_mode('GUIDED')
         m = self.assert_receive_message('GLOBAL_POSITION_INT')
         dest = util.gps_newpos(m.lat * 1e-7, m.lon * 1e-7, 0, 30)
@@ -1929,10 +1934,25 @@ class AutoTestSub(vehicle_test_suite.TestSuite):
                 mavutil.mavlink.POSITION_TARGET_TYPEMASK_YAW_IGNORE |
                 mavutil.mavlink.POSITION_TARGET_TYPEMASK_YAW_RATE_IGNORE)
         self.context_collect('STATUSTEXT')
-        self.mav.mav.set_position_target_global_int_send(
-            0, 1, 1, mavutil.mavlink.MAV_FRAME_GLOBAL_TERRAIN_ALT, mask,
-            int(dest[0] * 1e7), int(dest[1] * 1e7), 25,
-            0, 0, 0, 0, 0, 0, 0, 0)
+        accepted = False
+        start = self.get_sim_time()
+        while self.get_sim_time_cached() - start < 20:
+            self.mav.mav.set_position_target_global_int_send(
+                0, 1, 1, mavutil.mavlink.MAV_FRAME_GLOBAL_TERRAIN_ALT, mask,
+                int(dest[0] * 1e7), int(dest[1] * 1e7), 25,
+                0, 0, 0, 0, 0, 0, 0, 0)
+            deadline = self.get_sim_time_cached() + 1
+            while self.get_sim_time_cached() < deadline:
+                nav = self.assert_receive_message('NAV_CONTROLLER_OUTPUT')
+                if abs(nav.wp_dist - 30) < 5:
+                    accepted = True
+                    break
+            if accepted:
+                break
+        if not accepted:
+            raise NotAchievedException(
+                "AS04 SETUP_INCONCLUSIVE: GUIDED terrain target was not accepted")
+        self.progress("AS04 verified: 30m GUIDED terrain waypoint accepted")
         self.delay_sim_time(3, reason="GUIDED waypoint terrain navigation")
         self.progress("AS04: inducing rangefinder out-of-range in GUIDED")
         self.set_parameter('RNGFND1_MAX', 15)
