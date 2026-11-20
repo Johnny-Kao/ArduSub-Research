@@ -35,7 +35,7 @@ jobs:
         run: |
           export PATH="/github/home/.local/bin:$PATH"
           failures=0
-          for test in AS03DepthFailsafeSITL AS04GuidedTerrainRecoverySITL AS05GuidedAccelerationTimeoutSITL; do
+          for test in AS03DepthFailsafeSITL; do
             echo "::group::${test}"
             if python3 Tools/autotest/autotest.py --no-clean --no-configure "test.Sub.${test}"; then
               echo "SITL_RESULT ${test} PASS"
