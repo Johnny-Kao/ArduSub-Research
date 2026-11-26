@@ -11,7 +11,7 @@ jobs:
       image: ardupilot/ardupilot-dev-base:v0.2.0
       options: --privileged --cap-add=SYS_PTRACE --security-opt apparmor=unconfined --security-opt seccomp=unconfined
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
       - name: Verify autotest syntax
@@ -50,7 +50,7 @@ jobs:
           test ${failures} -eq 0
       - name: Archive SITL output
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: AS03-AS04-AS05-SITL-${{ github.run_id }}
           path: |

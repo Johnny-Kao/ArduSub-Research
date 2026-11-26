@@ -12,6 +12,6 @@ jobs:
   as01:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Compile actual baseline condition and reproduce rollover behavior
         run: python3 research/AS-01/test_source_condition.py
